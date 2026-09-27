@@ -1,0 +1,4 @@
+# MediaPipe requires the contrib distribution; install only one cv2 provider.
+opencv-contrib-python==4.13.0.92
+mediapipe==0.10.32
+pygame==2.6.1
