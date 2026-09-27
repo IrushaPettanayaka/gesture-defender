@@ -1,69 +1,90 @@
 # Gesture Defender 1.1.0 - release handoff
 
-## Delivered changes
+Source repository: https://github.com/IrushaPettanayaka/gesture-defender (private).
+
+## Implemented
 
 Retained Python/Pygame/OpenCV/MediaPipe and procedural assets. Added fist shield
-(0.35-second hold, 2-second duration, 8-second post-expiry cooldown), palm-center
+(0.35-second hold, 2-second duration, 8-second cooldown after expiry), palm-center
 steering during fists, keyboard shield, armored/zigzag enemies, hit feedback,
 timed combo multipliers and every-fifth-wave bosses with warned lance/fan attacks.
 
 Added unified camera setup with live preview, immediate camera selection, saved
-calibration, heuristic feedback and keyboard fallback. Camera switching waits for
-the old worker to exit. Tracking input expires after 0.20 seconds independently
-of the 0.65-second pause grace. Restart clears gesture offsets/holds and combat.
+calibration, heuristic feedback and keyboard fallback. Switching waits for the
+old camera worker to exit. Input expires after 0.20 seconds independently of the
+0.65-second pause grace. Restart clears combat, gesture holds and steering offsets.
 
-Added rotating startup logs and windowed error dialogs. Import failures are caught
-by the entry point; tracking errors remain recoverable in the UI. OS blocks that
+Fists use MediaPipe world-coordinate finger bends/reach with a 2D fallback and
+hysteresis for uncertain fingertips. Movement still uses mirrored image positions.
+The gesture verification window waits for Space before its 30-second timer begins.
+
+Startup import/runtime failures now have rotating logs and a windowed error dialog.
+Tracking errors are logged and remain recoverable in the UI. OS-level blocks that
 happen before Python starts cannot be caught by application logging.
 
-## Launch investigation
+## Launch investigation and actual verification
 
-The previous handoff recorded Windows Application Control blocking the unsigned
-executable and a native library (error 4551). Before editing this update, the old
-packaged executable launched successfully (120-frame keyboard smoke, exit 0),
-and its two bundled models loaded successfully (frozen diagnostic, exit 0).
-The historical block could not be reproduced; it is not represented as a code bug
-that this update fixed. No security policy was modified or bypassed.
+The previous handoff recorded Windows Application Control blocking an unsigned
+executable/native library (error 4551). Before this update, the old packaged game
+launched and initialized both models successfully. That historical launch failure
+could not be reproduced; it is not claimed to be a code bug fixed by this update.
+No Windows security policy was modified or bypassed.
 
-## Source verification completed
+- **45 automated tests pass:** simulation/input/persistence plus fist holds,
+  rearm/conflicts, jitter and 3D rotation/projection; shield timers; stale firing;
+  armor health; zigzag bounds; combos; boss scheduling/patterns/scoring;
+  paused timers; restart; camera switching; startup reporting.
+- Dependency check: no broken requirements. Python syntax compilation passed.
+  No separate static type checker is configured in this project.
+- Synthetic-only visual review: setup/error, enemy variety, shield/combo HUD and
+  both boss warnings. No webcam images saved.
+- **Real source camera controls:** one live run recorded 792 face frames, 607 hand
+  frames, 16 pinch-driven shots, two palm state transitions and a 0.412 normalized
+  steering span. Other runs also registered movement/shots/palm transitions.
+- **Portable 1.1.0:** actual keyboard window smoke exited 0; frozen diagnostics
+  loaded both bundled models and ran inference; ZIP CRC and required assets passed.
+- **Installed 1.1.0:** silent per-user installation exited 0. Installed executable
+  hash matched the build. Keyboard window smoke exited 0. Both models loaded;
+  actual 640 x 480 camera capture and face detection passed; worker stopped cleanly.
+  Executables were launched with `C:\Windows` as their working directory.
+- The first automated test-uninstaller launch was blocked with Windows error 4551.
+  Retrying that same uninstaller directly from Windows succeeded with exit 0.
+  This is an intermittent policy result, not proof that every unsigned build will
+  be permitted. Prefer the portable ZIP if local installation policy interferes.
 
-- 45 automated tests pass: prior simulation/input/persistence checks plus shield
-  hold/rearm/conflicts/steering, stale firing, armor health, bounded zigzag motion,
-  combos, boss scheduling/patterns/scoring, frozen timers, restart cleanup, camera
-  switching and startup error reporting.
-- `pip check`: no broken requirements.
-- Synthetic-only UI renders reviewed for setup/error, enemy variety, shield,
-  combo HUD and both boss warnings. No webcam frames saved.
-- Baseline packaged keyboard launch and actual bundled model initialization pass.
+## Remaining human/hardware checks
 
-Final 1.1.0 build/installed runtime results are recorded below after verification.
+**The final 3D fist shield has not been verified with a person.** Early tests did
+not sustain a detected fist for the hold duration. The user missed the focused
+pose prompt, so those aggregate measurements were not a valid fist test. A later
+packaged verification attempt never started its timer; the user chose to finish
+and test later. Do not count these attempts as successful packaged gesture tests.
 
-## User-deferred and external checks
-
-Real webcam checks have confirmed movement, pinch shots and palm pause/resume.
-The fist check is still being completed. Run:
+Run from the extracted release directory:
 
 ```powershell
 .\GestureDefender.exe --verify-controls live-controls.json
 ```
 
-The 30-second window records metadata-only counts for actual camera-driven
-movement/shots/palm transitions/shields. Move, pinch, palm-pause, relax then
-palm-resume, and fist-shield. Also check calibration comfort, mirrored direction,
-loss/resume behavior, disconnect/reconnect, and switching available real cameras.
-Mocked switching tests cannot validate every native camera driver.
+The window waits up to two minutes for Space with face and hand visible. Then test
+fist first while running, move left/right, pinch, palm-pause, relax and palm-resume.
+The report contains metadata-only action counts/ranges, never images. Check the
+feel of mirrored movement/calibration and shield rearm/cooldown as well.
 
-Extended play balance, audible sound quality, installer wizard interaction and a
-clean second-PC install remain manual acceptance checks. The release is unsigned.
-The pinned build uses Windows 11 x64 / Python 3.13.14. Source is being pushed to the user-requested private GitHub repository.
-Native camera-driver hangs use bounded joins followed by process shutdown.
+Camera disconnect/reconnect and switching between multiple physical cameras,
+extended balance, audible sound quality, installer wizard interaction and a clean
+second-PC installation remain manual checks. Mocked switching tests cannot prove
+every native driver. Native driver hangs use bounded joins then process exit.
+The release is unsigned and targets Windows 11 x64.
 
-## Files and rebuild
+## Deliverables and rebuild
 
 - `release/GestureDefender-1.1.0-Setup.exe`
 - `release/GestureDefender-1.1.0-Windows-x64.zip`
 - `release/SHA256SUMS-1.1.0.txt`
-- README: source/VS Code setup, controls, privacy, build and diagnostics.
+- README with installation, controls, VS Code/source setup and troubleshooting.
+- Source and commit history pushed to the user-requested private GitHub repository.
+  Environments, model downloads, local diagnostics and binaries stay out of Git.
 
 ```powershell
 .\.venv\Scripts\python.exe main.py
@@ -72,5 +93,6 @@ Native camera-driver hangs use bounded joins followed by process shutdown.
 .\.venv\Scripts\python.exe build_exe.py --installer
 ```
 
-Inno Setup 6.7.3 ISCC must be on PATH or `.tools/innosetup/ISCC.exe`. Dependencies,
-models, generated builds and local diagnostics remain ignored by Git. Existing unrelated changes are preserved. The user requested repository creation and commits.
+Use the pinned `requirements.lock`. Inno Setup 6.7.3 ISCC must be on PATH or at
+`.tools/innosetup/ISCC.exe`. PyInstaller 6.22.0 bundles models, dependencies and
+notices. No public publication or GitHub release upload was requested.
