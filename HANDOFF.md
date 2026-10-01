@@ -1,98 +1,101 @@
-# Gesture Defender 1.1.0 - release handoff
+# Gesture Defender 1.3.0 - cartoon space UI handoff
 
-Source repository: https://github.com/IrushaPettanayaka/gesture-defender (private).
+## Changes
 
-## Implemented
+The reference artwork was inspected before implementation. Version 1.3 replaces
+1.2's minimal navy style with an indigo/purple illustrated space interface:
+curved glossy orange buttons, cyan controls, lavender pause controls, luminous
+blue panels, dimensional live lettering, planets, a saucer and a rocket.
 
-Retained Python/Pygame/OpenCV/MediaPipe and procedural assets. Added fist shield
-(0.35-second hold, 2-second duration, 8-second cooldown after expiry), palm-center
-steering during fists, keyboard shield, armored/zigzag enemies, hit feedback,
-timed combo multipliers and every-fifth-wave bosses with warned lance/fan attacks.
+All application code remains Python/Pygame/OpenCV/MediaPipe. No new dependency,
+Blender, network runtime asset loading, image recording or upload was introduced.
+`space_art.py` creates original transparent procedural illustrations and caches
+skins, preview masks and gradients. `ui_components.py` owns live text and reusable
+buttons/panels/meters/icons. The camera frame clips the preview to curved corners.
+`arena_view.py` draws projected world positions with native-size text/strokes,
+removing the earlier world-bitmap stretch while preserving simulation/hitboxes.
 
-Added unified camera setup with live preview, immediate camera selection, saved
-calibration, heuristic feedback and keyboard fallback. Switching waits for the
-old camera worker to exit. Input expires after 0.20 seconds independently of the
-0.65-second pause grace. Restart clears combat, gesture holds and steering offsets.
+The menu, mode selection, setup, calibration, gameplay, pause, results, controls
+and settings all share the theme. Combat rules and tracking thresholds are
+unchanged. H hides only the preview; K releases camera ownership and selects the
+keyboard. Timers freeze while paused; recovery/settings never auto-resume. No
+currency/reward/shop systems were added. HUD and result values use real state.
 
-Fists use MediaPipe world-coordinate finger bends/reach with a 2D fallback and
-hysteresis for uncertain fingertips. Movement still uses mirrored image positions.
-The gesture verification window waits for Space before its 30-second timer begins.
+Mouse buttons activate on release over the original enabled control. Dragging
+away or changing scenes cancels a pending press. Focus, hover, pressed and disabled
+states are visible. Reduced motion removes decorative bobbing and transitions.
 
-Startup import/runtime failures now have rotating logs and a windowed error dialog.
-Tracking errors are logged and remain recoverable in the UI. OS-level blocks that
-happen before Python starts cannot be caught by application logging.
+## Reference rights and offline assets
 
-## Launch investigation and actual verification
+Designed by vectorpouch / Freepik — https://www.freepik.com
 
-The previous handoff recorded Windows Application Control blocking an unsigned
-executable/native library (error 4551). Before this update, the old packaged game
-launched and initialized both models successfully. That historical launch failure
-could not be reproduced; it is not claimed to be a code bug fixed by this update.
-No Windows security policy was modified or bypassed.
+Both supplied license files were read; premium rights are not assumed. The JPG
+was visually inspected and EPS metadata inspected. No EPS extraction tool was
+available, so original procedural recreation was used as requested. Reference
+JPG/EPS/license files remain in ignored `artifacts/reference-space`; no reference
+pixels/paths or source artwork are bundled. `ART_ATTRIBUTION.md` and bundled
+notices retain attribution. Its linked online terms could not be retrieved by
+the browser; no independent redistribution clearance is claimed.
 
-- **45 automated tests pass:** simulation/input/persistence plus fist holds,
-  rearm/conflicts, jitter and 3D rotation/projection; shield timers; stale firing;
-  armor health; zigzag bounds; combos; boss scheduling/patterns/scoring;
-  paused timers; restart; camera switching; startup reporting.
-- Dependency check: no broken requirements. Python syntax compilation passed.
-  No separate static type checker is configured in this project.
-- Synthetic-only visual review: setup/error, enemy variety, shield/combo HUD and
-  both boss warnings. No webcam images saved.
-- **Real source camera controls:** one live run recorded 792 face frames, 607 hand
-  frames, 16 pinch-driven shots, two palm state transitions and a 0.412 normalized
-  steering span. Other runs also registered movement/shots/palm transitions.
-- **Portable 1.1.0:** actual keyboard window smoke exited 0; frozen diagnostics
-  loaded both bundled models and ran inference; ZIP CRC and required assets passed.
-- **Installed 1.1.0:** silent per-user installation exited 0. Installed executable
-  hash matched the build. Keyboard window smoke exited 0. Both models loaded;
-  actual 640 x 480 camera capture and face detection passed; worker stopped cleanly.
-  Executables were launched with `C:\Windows` as their working directory.
-- The first automated test-uninstaller launch was blocked with Windows error 4551.
-  Retrying that same uninstaller directly from Windows succeeded with exit 0.
-  This is an intermittent policy result, not proof that every unsigned build will
-  be permitted. Prefer the portable ZIP if local installation policy interferes.
+## Verification
 
-## Remaining human/hardware checks
+- 66 tests passed, including existing gameplay/tracking tests and new pointer
+  cancellation, disabled buttons, projection and saved visual-preference tests.
+- 23 native source UI-flow checks passed with a synthetic camera worker. The flow
+  covers menu -> mode -> setup -> calibration/default -> play -> pause -> settings
+  -> resume -> menu -> keyboard -> fullscreen/windowed -> game over/restart/exit.
+  Press state and drag cancellation are exercised through actual Pygame events.
+- Synthetic screenshots rendered at 1366x768, 1920x1080 and 1066x600; main menu,
+  setup, play, pause, game over, boss warnings, controls and settings inspected.
+  Camera corner clipping and text contrast were corrected from those reviews.
+- `pip check` passed. Source keyboard smoke launch exited successfully.
+- PyInstaller and Inno Setup production builds completed. All 23 UI-flow checks
+  also passed in the packaged executable, launched from C:\Windows. Packaged menu,
+  setup and gameplay screenshots were inspected. Offline procedural art and the
+  bundled Pygame font loaded correctly.
+- Both source and packaged model/camera diagnostics passed: face/hand models
+  initialized, a 640x480 RGB camera frame was received and the worker stopped.
+  The source check observed a face but no hand; the packaged check observed neither.
+  These startup checks do not verify human gesture actions or accuracy.
+- Installer deployment and matching executable/document checks passed. Windows
+  App Control initially blocked the test uninstaller; one ordinary retry of the
+  same uninstaller succeeded and removed the temporary installed executable.
+  No security settings were changed. Earlier 1.2 runtime blocks did not recur in
+  these 1.3 source/packaged startup checks, but the unsigned release can still be
+  blocked by Windows policy on this or another machine.
+- ZIP integrity, bundled font/models/attribution and SHA-256 checks passed.
+  The supplied reference artwork/license files are excluded. Standard dependency
+  assets (including Python's base_library.zip and Tk's own logos) remain bundled.
 
-**The final 3D fist shield has not been verified with a person.** Early tests did
-not sustain a detected fist for the hold duration. The user missed the focused
-pose prompt, so those aggregate measurements were not a valid fist test. A later
-packaged verification attempt never started its timer; the user chose to finish
-and test later. Do not count these attempts as successful packaged gesture tests.
+Evidence: `artifacts/ui-1.3-tests.log`, `artifacts/source-ui-1.3/report.json`,
+`artifacts/packaged-ui-1.3/report.json`, `artifacts/ui-1.3/`,
+`artifacts/release-1.3-build.log`, `artifacts/source-camera-1.3.json`,
+`artifacts/packaged-camera-1.3.json`, `artifacts/archive-1.3.json`,
+`artifacts/ui-1.3-installer-verification.json` and `artifacts/ui-1.3-uninstall-retry.json`.
+All captured camera previews are synthetic and labelled; no real camera images
+were saved. Gallery scores are samples, not claims about a live run.
 
-Run from the extracted release directory:
-
-```powershell
-.\GestureDefender.exe --verify-controls live-controls.json
-```
-
-The window waits up to two minutes for Space with face and hand visible. Then test
-fist first while running, move left/right, pinch, palm-pause, relax and palm-resume.
-The report contains metadata-only action counts/ranges, never images. Check the
-feel of mirrored movement/calibration and shield rearm/cooldown as well.
-
-Camera disconnect/reconnect and switching between multiple physical cameras,
-extended balance, audible sound quality, installer wizard interaction and a clean
-second-PC installation remain manual checks. Mocked switching tests cannot prove
-every native driver. Native driver hangs use bounded joins then process exit.
-The release is unsigned and targets Windows 11 x64.
-
-## Deliverables and rebuild
-
-- `release/GestureDefender-1.1.0-Setup.exe`
-- `release/GestureDefender-1.1.0-Windows-x64.zip`
-- `release/SHA256SUMS-1.1.0.txt`
-- README with installation, controls, VS Code/source setup and troubleshooting.
-- Source and commit history pushed to the user-requested private GitHub repository.
-  Environments, model downloads, local diagnostics and binaries stay out of Git.
+## Run/build
 
 ```powershell
 .\.venv\Scripts\python.exe main.py
-.\.venv\Scripts\python.exe main.py --webcam
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe main.py --verify-ui artifacts\source-ui-1.3
+.\.venv\Scripts\python.exe tools\render_preview.py
 .\.venv\Scripts\python.exe build_exe.py --installer
 ```
 
-Use the pinned `requirements.lock`. Inno Setup 6.7.3 ISCC must be on PATH or at
-`.tools/innosetup/ISCC.exe`. PyInstaller 6.22.0 bundles models, dependencies and
-notices. No public publication or GitHub release upload was requested.
+Outputs are `release/GestureDefender-1.3.0-Setup.exe`,
+`release/GestureDefender-1.3.0-Windows-x64.zip` and
+`release/SHA256SUMS-1.3.0.txt`. Earlier release files remain available.
+This is an unsigned Windows distribution. The redesign was initially verified
+locally; the user subsequently authorized committing/uploading the project and
+publishing version 1.3.0 to the existing private GitHub repository. See DEPLOYMENT.md.
+
+## Remaining manual checks
+
+Actual webcam gesture feel/accuracy (especially fist), physical camera switching
+or disconnection, audio playback, clean second-PC installation and changing actual
+Windows display scaling between monitors require manual acceptance. The native
+window test exercises fullscreen, resizing/minimum-size enforcement and letterbox
+mapping; it does not change Windows DPI settings. No Windows security settings
+were changed to enable verification.

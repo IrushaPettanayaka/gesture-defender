@@ -13,7 +13,7 @@ class StartupTests(unittest.TestCase):
                 patch.dict(startup.os.environ, {'LOCALAPPDATA': directory}), \
                 patch.object(startup.logging, 'basicConfig') as configure:
             path = startup.configure()
-            handler = configure.call_args.kwargs['handlers'][0]
+            handler = next(call.kwargs['handlers'][0] for call in configure.call_args_list if 'handlers' in call.kwargs)
             try:
                 self.assertTrue(path.is_file())
                 self.assertEqual(handler.maxBytes, 250_000)

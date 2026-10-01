@@ -33,6 +33,7 @@ class Game:
         self.reset()
 
     def reset(self):
+        self.record_at_start = self.best
         self.state, self.reason = 'ready', ''
         self.score, self.lives = 0, 3
         self.elapsed, self.wave_time = 0.0, 0.0

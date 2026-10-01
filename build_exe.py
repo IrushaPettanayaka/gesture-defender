@@ -24,10 +24,10 @@ if __name__ == '__main__':
         '--add-data', f'{root / "art"};art', str(root / 'main.py'),
     ], cwd=root, check=True)
     distribution = root / 'dist/GestureDefender'
-    for name in ('README.md', 'HANDOFF.md', 'THIRD_PARTY_NOTICES.md'):
+    for name in ('README.md', 'HANDOFF.md', 'THIRD_PARTY_NOTICES.md', 'ART_ATTRIBUTION.md', 'DEPLOYMENT.md'):
         shutil.copy2(root / name, distribution / name)
     (root / 'release').mkdir(exist_ok=True)
-    shutil.make_archive(str(root / 'release/GestureDefender-1.1.0-Windows-x64'), 'zip',
+    shutil.make_archive(str(root / 'release/GestureDefender-1.3.0-Windows-x64'), 'zip',
                         root_dir=root / 'dist', base_dir='GestureDefender')
     if args.installer:
         compiler = root / '.tools/innosetup/ISCC.exe'
@@ -35,10 +35,10 @@ if __name__ == '__main__':
         if not executable:
             raise SystemExit('Install Inno Setup 6.7.3 or put ISCC on PATH; portable ZIP already built.')
         subprocess.run([executable, '/Qp', str(root / 'packaging/installer.iss')], cwd=root, check=True)
-    artifacts = sorted((root / 'release').glob('GestureDefender-1.1.0-*'))
+    artifacts = sorted((root / 'release').glob('GestureDefender-1.3.0-*'))
     lines = []
     for artifact in artifacts:
         with artifact.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         lines.append(f'{digest}  {artifact.name}')
-    (root / 'release/SHA256SUMS-1.1.0.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    (root / 'release/SHA256SUMS-1.3.0.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')

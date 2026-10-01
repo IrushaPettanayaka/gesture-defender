@@ -17,8 +17,12 @@ def main():
     parser.add_argument('--diagnostics', metavar='JSON_PATH', help='check bundled models and write metadata only')
     parser.add_argument('--check-camera', action='store_true', help='also open the camera during diagnostics')
     parser.add_argument('--verify-controls', metavar='JSON_PATH', help='30-second real webcam gesture check (metadata only)')
+    parser.add_argument('--verify-ui', metavar='OUTPUT_DIR', help='exercise UI with synthetic camera data; save review images and a report')
     args = parser.parse_args()
     try:
+        if args.verify_ui:
+            from ui_check import verify
+            return verify(args.verify_ui)
         if args.verify_controls:
             from live_check import verify
             return verify(args.verify_controls, camera_index=args.camera or 0)

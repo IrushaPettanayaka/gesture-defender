@@ -1,259 +1,153 @@
-"""Application loop: input mode, tracking health, game state, and rendering."""
-import time
+"""Native window/event loop. Screen transitions live in session.py; UI in ui.py."""
 import logging
+import os
+import time
 import pygame
-from controls import InputController
-from game import Game
-from scores import ScoreStore
-from settings import WIDTH, HEIGHT
-from ui import Renderer
-from calibration import Calibration
-from preferences import Preferences
-from audio_fx import Audio
 from assets import ROOT
+from audio_fx import Audio
+from preferences import Preferences
+from scores import ScoreStore
+from session import Session
+from settings import WIDTH, HEIGHT, MIN_WINDOW
+from ui import Renderer
 
 
 def create_worker(camera_index, low_resolution=False):
-    # Keyboard mode does not import OpenCV or MediaPipe.
     from tracking import TrackingWorker
     worker = TrackingWorker(camera_index, low_resolution)
     worker.start()
     return worker
 
 
-def run(camera_index=None, demo=True, smoke_frames=0, score_path=None):
+def run(camera_index=None, demo=True, smoke_frames=0, score_path=None, event_hook=None):
+    # SDL renders in native pixels; the UI maps both drawing and hit tests.
+    # https://wiki.libsdl.org/SDL2/SDL_HINT_WINDOWS_DPI_AWARENESS
+    os.environ.setdefault('SDL_WINDOWS_DPI_AWARENESS', 'permonitorv2')
     pygame.display.init()
     pygame.font.init()
-    worker, game, store = None, None, None
-    retired = []
-    preferences = None
+    session = preferences = store = None
     try:
-        screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
-        pygame.display.set_caption("Gesture Defender")
-        icon_path = ROOT / "art" / "game.png"
-        if icon_path.is_file():
-            pygame.display.set_icon(pygame.image.load(str(icon_path)))
-        renderer, game = Renderer(screen), Game()
-        store = ScoreStore(score_path)
-        preferences = Preferences()
+        preferences, store = Preferences(), ScoreStore(score_path)
         prefs = preferences.values
         if camera_index is not None:
-            prefs["camera_index"] = camera_index
+            prefs['camera_index'] = camera_index
+        desktop = pygame.display.get_desktop_sizes()[0]
+        scale = min(1, (desktop[0]-64)/WIDTH, (desktop[1]-100)/HEIGHT)
+        windowed_size = (max(MIN_WINDOW[0], int(WIDTH*scale)), max(MIN_WINDOW[1], int(HEIGHT*scale)))
+        fullscreen = prefs['fullscreen'] and not smoke_frames
+        screen = pygame.display.set_mode((0, 0) if fullscreen else windowed_size,
+                                          pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE)
+        pygame.display.set_caption('Gesture Defender')
+        icon = ROOT / 'art/game.png'
+        if icon.is_file():
+            pygame.display.set_icon(pygame.image.load(str(icon)))
+        renderer = Renderer(screen)
         renderer.preferences = prefs
         audio = Audio() if not smoke_frames else None
-        game.best = store.best
-        controller = InputController(keyboard=demo)
-        calibration = None
-        pending_camera = False
-        if not demo:
-            game.state = 'setup'
-        startup_error = None
-        if not demo:
-            try:
-                worker = create_worker(prefs["camera_index"], prefs["low_resolution"])
-            except Exception as error:
-                startup_error = str(error)
-        clock = pygame.time.Clock()
-        logging.info('UI initialized; input=%s camera=%s', 'keyboard' if demo else 'webcam', prefs['camera_index'])
-        frames = 0
-        started = time.monotonic()
-
         def save_best():
-            if not smoke_frames:
-                store.save(game.best)
-
+            if session and not smoke_frames:
+                store.save(session.game.best)
+        session = Session(prefs, create_worker, store.best, demo, save_best)
+        clock = pygame.time.Clock()
+        frames, generation = 0, -1
+        logging.info('UI initialized; input=%s', 'keyboard' if demo else 'camera setup')
         while True:
             dt = clock.tick(60) / 1000
             now = time.monotonic()
-            packet, error = worker.snapshot() if worker else (None, startup_error)
-            if pending_camera and not any(w.thread.is_alive() for w in retired):
-                retired.clear()
-                pending_camera = False
-                startup_error = None
-                try:
-                    worker = create_worker(prefs['camera_index'], prefs['low_resolution'])
-                except Exception as failure:
-                    startup_error = str(failure)
-                    logging.exception('Camera restart failed')
-                packet, error = None, startup_error
-            quit_requested, toggle, start, restart, change_mode = False, False, False, False, False
-            retry_camera, shield_key = False, False
+            shield, quit_requested = False, False
+            if event_hook:
+                event_hook(frames, session, renderer)
             for event in pygame.event.get():
+                action = None
                 if event.type == pygame.QUIT:
                     quit_requested = True
-                elif event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
-                    key = event.key if event.type == pygame.KEYDOWN else renderer.click(event.pos)
+                elif event.type == pygame.WINDOWFOCUSLOST:
+                    session.game.pause('Window lost focus - resume when ready')
+                    session.input_guard = True
+                    renderer.ui.pressed = None
+                    renderer.ui.key_pressed = False
+                elif event.type in (pygame.VIDEORESIZE, pygame.WINDOWSIZECHANGED) and not fullscreen:
+                    size = getattr(event, 'size', screen.get_size())
+                    size = (max(MIN_WINDOW[0], size[0]), max(MIN_WINDOW[1], size[1]))
+                    if screen.get_size() != size:
+                        screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+                        renderer.window = screen
+                    windowed_size = size
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    renderer.pointer_down(event.pos)
+                elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                    action = renderer.pointer_up(event.pos)
+                elif event.type == pygame.KEYUP and event.key == pygame.K_RETURN:
+                    renderer.ui.key_pressed = False
+                elif event.type == pygame.KEYDOWN:
+                    key = event.key
+                    active = session.page == 'play' and session.game.state == 'running'
                     if key == pygame.K_q:
                         quit_requested = True
                     elif key == pygame.K_ESCAPE:
-                        game.pause("Paused - choose resume or quit")
-                        renderer.menu_open = not renderer.menu_open
-                        renderer.settings_open = False
-                    elif key == pygame.K_F1:
-                        game.pause("Settings")
-                        renderer.settings_open = not renderer.settings_open
-                        renderer.menu_open = False
-                    elif key == pygame.K_m:
-                        prefs["muted"] = not prefs["muted"]
-                    elif key == pygame.K_v:
-                        prefs["volume"] = round((prefs["volume"] + 0.2) % 1.01, 1)
-                    elif key == pygame.K_e:
-                        prefs["reduced_motion"] = not prefs["reduced_motion"]
-                    elif key == pygame.K_l:
-                        prefs["low_resolution"] = not prefs["low_resolution"]
-                        retry_camera = not controller.keyboard
-                    elif key in (pygame.K_LEFTBRACKET, pygame.K_RIGHTBRACKET):
-                        prefs["camera_index"] = max(0, min(9, prefs["camera_index"] + (1 if key == pygame.K_RIGHTBRACKET else -1)))
-                        retry_camera = not controller.keyboard
-                    elif key in (pygame.K_MINUS, pygame.K_EQUALS, pygame.K_PLUS):
-                        prefs["sensitivity"] = round(max(0.5, min(2, prefs["sensitivity"] + (-0.1 if key == pygame.K_MINUS else 0.1))), 1)
-                    elif key == pygame.K_c and not controller.keyboard:
-                        calibration = Calibration()
-                        game.state = "setup"
-                        renderer.settings_open = renderer.menu_open = False
-                    elif key == pygame.K_RETURN and game.state in ("calibrating", "setup"):
-                        prefs["range_left"], prefs["range_right"] = 0.08, 0.92
-                        game.state, game.reason = "setup", "Default range selected - Start when tracking is ready"
-                        calibration = None
-                    elif key in (pygame.K_s, pygame.K_LSHIFT, pygame.K_RSHIFT):
-                        shield_key = True
-                    elif key == pygame.K_t and not controller.keyboard:
-                        retry_camera = True
-                    elif key == pygame.K_p:
-                        toggle = True
-                    elif key == pygame.K_SPACE:
-                        start = game.state in ("ready", "paused", "setup")
-                    elif key == pygame.K_r:
-                        restart = True
-                    elif key in (pygame.K_k, pygame.K_TAB):
-                        change_mode = True
-                elif event.type == pygame.WINDOWFOCUSLOST:
-                    game.pause("Window lost focus")
+                        session.escape()
+                    elif key == pygame.K_F2:
+                        renderer.debug = not renderer.debug
+                    elif key in (pygame.K_TAB, pygame.K_RETURN) or (not active and key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)):
+                        renderer.ui.key_pressed = key == pygame.K_RETURN
+                        action = renderer.navigate(key, bool(getattr(event, 'mod', 0) & pygame.KMOD_SHIFT))
+                    elif key == pygame.K_SPACE and not active:
+                        action = {'menu': 'play', 'setup': 'start'}.get(session.page)
+                        if session.page == 'play' and session.game.state == 'paused':
+                            action = 'resume'
+                    elif key in (pygame.K_s, pygame.K_LSHIFT, pygame.K_RSHIFT) and active:
+                        shield = True
+                    elif key == pygame.K_p and session.page == 'play':
+                        action = 'pause' if active else 'resume'
+                    elif key == pygame.K_r and session.page == 'play':
+                        action = 'restart'
+                    else:
+                        action = {pygame.K_F1: 'settings', pygame.K_F11: 'fullscreen', pygame.K_k: 'switch_input',
+                                  pygame.K_h: 'toggle_preview', pygame.K_m: 'mute', pygame.K_v: 'volume_up',
+                                  pygame.K_e: 'reduced_motion', pygame.K_l: 'resolution',
+                                  pygame.K_c: 'recalibrate', pygame.K_t: 'retry_camera',
+                                  pygame.K_LEFTBRACKET: 'camera_prev', pygame.K_RIGHTBRACKET: 'camera_next',
+                                  pygame.K_MINUS: 'sensitivity_down', pygame.K_EQUALS: 'sensitivity_up',
+                                  pygame.K_PLUS: 'sensitivity_up'}.get(key)
+                if action == 'quit':
+                    quit_requested = True
+                elif action == 'fullscreen':
+                    fullscreen = not fullscreen
+                    prefs['fullscreen'] = fullscreen
+                    screen = pygame.display.set_mode((0, 0) if fullscreen else windowed_size,
+                                                      pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE)
+                    renderer.window = screen
+                    session.input_guard = True
+                else:
+                    session.perform(action)
             if quit_requested:
                 break
-            if change_mode:
-                game.pause("Input mode changed - press Space to resume")
-                if game.state in ("calibrating", "setup"):
-                    game.state, game.reason = "paused", "Input mode changed"
-                calibration = None
-                renderer.menu_open = renderer.settings_open = False
-                keyboard = not controller.keyboard
-                if worker:
-                    worker.stop.set()
-                    retired.append(worker)
-                    worker = None
-                controller = InputController(keyboard=keyboard, x=controller.x)
-                pending_camera = False
-                startup_error = None
-                renderer.sequence = -1
-                if not keyboard:
-                    game.state, game.reason = 'setup', ''
-                    if any(w.thread.is_alive() for w in retired):
-                        pending_camera = True
-                    else:
-                        try:
-                            worker = create_worker(prefs["camera_index"], prefs["low_resolution"])
-                        except Exception as failure:
-                            startup_error = str(failure)
-                packet, error = None, startup_error
-                started = now
-                start = toggle = False
-            if retry_camera:
-                game.state, game.reason = 'setup', 'Switching camera...'
-                calibration = None
-                if worker:
-                    worker.stop.set()
-                    retired.append(worker)
-                    worker = None
-                pending_camera = True
-                controller = InputController(keyboard=False, x=controller.x)
-                renderer.sequence = -1
-                packet, error, startup_error = None, None, None
-                renderer.menu_open = renderer.settings_open = False
-                started = now
-            if restart:
-                save_best()
-                game.reset()
-                if not controller.keyboard:
-                    game.state = 'setup'
-                controller = InputController(keyboard=controller.keyboard)
-                controller.gestures.pinching = controller.gestures.palm_latched = True
-                controller.gestures.blocked_until_release = True
-                controller.gestures.fist_latched = True
-                calibration = None
-                renderer.menu_open = renderer.settings_open = False
-                start = toggle = False
-
+            if smoke_frames and not event_hook and demo and frames == 0:
+                session.perform('choose_keyboard')
             keys = pygame.key.get_pressed()
-            controller.gestures.range_left = prefs["range_left"]
-            controller.gestures.range_right = prefs["range_right"]
-            controller.gestures.sensitivity = prefs["sensitivity"]
             direction = int(keys[pygame.K_RIGHT] or keys[pygame.K_d]) - int(keys[pygame.K_LEFT] or keys[pygame.K_a])
-            controls = controller.update(packet, error, now, dt, direction,
-                                         fire=bool(keys[pygame.K_SPACE] and game.state == "running"),
-                                         shield=shield_key)
-            health = controller.health
-            can_start = controller.keyboard or health.ready
-            if smoke_frames and controller.keyboard and frames == 0:
-                start = True
-            if (toggle or start or controls.toggle) and not restart and calibration is None:
-                if game.state == "ready" and not controller.keyboard and can_start:
-                    game.state = "setup"
-                else:
-                    game.toggle(can_start)
-                renderer.menu_open = renderer.settings_open = False
-                controls.shoot = False
-            if game.state in ("calibrating", "setup") and calibration and not renderer.menu_open and not renderer.settings_open:
-                x = packet.hand[8][0] if health.ready else None
-                result = calibration.update(x, dt)
-                if result:
-                    prefs["range_left"], prefs["range_right"] = result
-                    game.state, game.reason = "setup", "Calibrated - press Start to launch"
-                    calibration = None
-                    controller.gestures.pinching = controller.gestures.palm_latched = True
-                    controller.gestures.blocked_until_release = True
-            previous_state = game.state
-            game.update(dt, controls.x, controls.shoot,
-                        controller.keyboard or health.can_continue, health.reason, shield=controls.shield)
-            if game.state == "gameover" and previous_state != "gameover":
-                save_best()
+            controls = session.update(now, dt, direction, bool(keys[pygame.K_SPACE]), shield)
             if audio:
-                for name, _, _ in game.events:
+                for name, _, _ in session.game.events:
                     audio.play(name, prefs)
-
-            if controller.keyboard:
-                status = "Camera off. Keyboard controls active."
-            elif error:
-                status = "Tracking unavailable. K: keyboard mode."
-            elif not packet:
-                status = "Loading local models and opening camera..."
-                if now - started > 15:
-                    status = "Camera startup delayed. K: keyboard mode."
-            elif not health.ready:
-                status = health.reason
-            elif controls.fist:
-                status = "Fist: shield hold / palm-center steering"
-            elif controls.pinching:
-                status = "Pinch held: firing. Release to stop."
-            else:
-                status = controller.feedback
-            if store.error:
-                status = store.error
-            renderer.calibration = calibration
-            renderer.draw(game, packet, controls, health.face_ok, health.hand_ok, status,
-                          error, controller.keyboard, clock.get_fps())
+            if generation != session.preview_generation:
+                renderer.sequence, renderer.preview = -1, None
+                generation = session.preview_generation
+            renderer.page, renderer.calibration = session.page, session.calibration
+            renderer.can_start, renderer.fullscreen = session.ready, fullscreen
+            health = session.controller.health
+            renderer.draw(session.game, session.packet, controls, health.face_ok, health.hand_ok,
+                          store.error or preferences.error or session.status(), session.error,
+                          session.controller.keyboard, clock.get_fps())
             frames += 1
             if smoke_frames and frames >= smoke_frames:
                 break
         return 0
     finally:
-        if game is not None and store is not None and not smoke_frames:
-            store.save(game.best)
-        if preferences is not None and not smoke_frames:
+        if session and store and not smoke_frames:
+            store.save(session.game.best)
+        if preferences and not smoke_frames:
             preferences.save()
-        if worker:
-            worker.close()
-        for old_worker in retired:
-            old_worker.close()
+        stopped = session.close() if session else True
         pygame.quit()
-        logging.info('Application closed; workers stopped=%s', all(not w.thread.is_alive() for w in retired + ([worker] if worker else [])))
+        logging.info('Application closed; workers stopped=%s', stopped)

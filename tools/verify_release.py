@@ -15,7 +15,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / 'artifacts'
 TEST_DIR = (ROOT / 'installer-test').resolve()
-VERSION = '1.1.0'
+VERSION = '1.3.0'
 
 
 def run(executable, *arguments, timeout=60):
@@ -47,26 +47,31 @@ def main():
             if bad:
                 raise RuntimeError(f'Archive CRC failure: {bad}')
             for required in ('GestureDefender.exe', '_internal/models/face_landmarker.task',
-                             '_internal/models/hand_landmarker.task', '_internal/THIRD_PARTY_NOTICES.md'):
+                             '_internal/models/hand_landmarker.task', '_internal/THIRD_PARTY_NOTICES.md',
+                             'ART_ATTRIBUTION.md', '_internal/pygame/freesansbold.ttf'):
                 if f'GestureDefender/{required}' not in bundle.namelist():
                     raise RuntimeError(f'Archive missing {required}')
+            restricted = {'2377.jpg', '2377.eps', 'License free.txt', 'License premium.txt'}
+            if any(Path(name).name in restricted or 'reference-space/' in name for name in bundle.namelist()):
+                raise RuntimeError('Reference artwork must not be redistributed in the release.')
+            report['restricted_reference_excluded'] = True
             report['archive_entries'] = len(bundle.namelist())
             report['archive_crc_and_required_assets'] = True
         executable = ROOT / 'dist/GestureDefender/GestureDefender.exe'
         report['portable_smoke_exit'] = run(executable, '--keyboard', '--smoke-frames', '120')
-        model_report = ARTIFACTS / 'packaged-models-1.1.json'
+        model_report = ARTIFACTS / 'packaged-models-1.3.json'
         report['portable_models_exit'] = run(executable, '--diagnostics', model_report)
         report['portable_models'] = json.loads(model_report.read_text(encoding='utf-8'))
         installer = ROOT / f'release/GestureDefender-{VERSION}-Setup.exe'
         install_started = True
         report['install_exit'] = run(installer, '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
-                                     '/NOICONS', f'/DIR={TEST_DIR}', f'/LOG={ARTIFACTS / "install-1.1.log"}')
+                                     '/NOICONS', f'/DIR={TEST_DIR}', f'/LOG={ARTIFACTS / "install-1.3.log"}')
         installed_exe = TEST_DIR / 'GestureDefender.exe'
         report['installed_hash_matches'] = hashlib.sha256(installed_exe.read_bytes()).digest() == hashlib.sha256(executable.read_bytes()).digest()
         if not report['installed_hash_matches']:
             raise RuntimeError('Installed executable differs from build.')
         report['installed_smoke_exit'] = run(installed_exe, '--keyboard', '--smoke-frames', '120')
-        camera_report = ARTIFACTS / 'installed-camera-1.1.json'
+        camera_report = ARTIFACTS / 'installed-camera-1.3.json'
         report['installed_camera_exit'] = run(installed_exe, '--diagnostics', camera_report, '--check-camera')
         report['installed_camera'] = json.loads(camera_report.read_text(encoding='utf-8'))
         report['success'] = True
@@ -86,7 +91,7 @@ def main():
                 report['uninstall_error'] = str(error)
         if 'install_exit' in report:
             report['success'] = report['success'] and report.get('installed_executable_removed', False)
-        (ARTIFACTS / 'release-verification-1.1.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        (ARTIFACTS / 'release-verification-1.3.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         print(json.dumps(report, indent=2))
     return 0 if report['success'] else 1
 

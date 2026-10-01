@@ -1,6 +1,7 @@
 """Tuning values shared by the game and the tracking pipeline."""
 
-WIDTH, HEIGHT = 1100, 760
+WIDTH, HEIGHT = 1366, 768
+MIN_WINDOW = (1066, 600)
 ARENA = (24, 110, 740, 610)
 CAMERA_WIDTH, CAMERA_HEIGHT = 640, 480
 TRACKING_TIMEOUT = 1.0

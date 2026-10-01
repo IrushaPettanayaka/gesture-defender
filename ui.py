@@ -1,273 +1,353 @@
-"""Pygame rendering; images remain in memory."""
+"""Responsive arcade screens; drawing and navigation are separate from combat."""
 import math
 import pygame
+from arena_view import ArenaView
+from space_art import SpaceBackdrop, illustration, preview_mask
 from hand_tracking import CONNECTIONS
-from settings import WIDTH, HEIGHT
-from effects import Effects
 from preferences import DEFAULTS
-
-BG, INK, MUTED = (9, 15, 28), (229, 240, 249), (139, 158, 182)
-CYAN, GOLD, RED = (84, 231, 215), (255, 202, 112), (255, 106, 130)
+from settings import WIDTH, HEIGHT
+from ui_components import Canvas, StableMessage, progress, gesture_icon, BG, PANEL, CYAN, RED, INK, MUTED, BORDER, GOLD
 
 
 class Renderer:
     def __init__(self, screen):
         self.window = screen
         self.screen = pygame.Surface((WIDTH, HEIGHT))
-        self.fonts = {s: pygame.font.Font(None, s) for s in (20, 23, 28, 36, 58)}
+        self.ui = Canvas(self.screen)
+        self.arena_view = ArenaView()
+        self.backdrop = SpaceBackdrop((WIDTH,HEIGHT))
+        self.menu_rocket = pygame.transform.rotozoom(illustration('rocket',310),-28,1)
+        self.preferences = DEFAULTS.copy()
+        self.page = 'auto'
+        self.return_page = 'menu'
+        self.calibration = None
+        self.can_start = None
+        self.setup_prompt = ''
         self.preview = None
         self.sequence = -1
-        self.effects = Effects()
-        self.preferences = DEFAULTS.copy()
-        self.settings_open = False
-        self.menu_open = False
-        self.calibration = None
-        self.buttons = []
+        self.debug = False
+        self.fullscreen = False
+        self.message = StableMessage()
         self.last_tick = pygame.time.get_ticks()
+        self.transition = 1.0
+        self.last_scene = None
+        self.elapsed = 0.0
+        self.viewport = pygame.Rect(24, 100, WIDTH - 48, 478)
+
+    @property
+    def buttons(self):
+        return self.ui.buttons
+
+    def logical_position(self, position):
+        w, h = self.window.get_size()
+        scale = min(w / WIDTH, h / HEIGHT)
+        return ((position[0] - (w - WIDTH * scale) / 2) / scale,
+                (position[1] - (h - HEIGHT * scale) / 2) / scale)
 
     def click(self, position):
-        w, h = self.window.get_size()
-        scale = min(w / WIDTH, h / HEIGHT)
-        x = (position[0] - (w - WIDTH * scale) / 2) / scale
-        y = (position[1] - (h - HEIGHT * scale) / 2) / scale
-        return next((key for rect, key in self.buttons if rect.collidepoint(x, y)), None)
+        return self.ui.click(self.logical_position(position))
 
-    def button(self, label, rect, key):
+    def pointer_down(self, position):
+        self.ui.pointer_down(self.logical_position(position))
+
+    def pointer_up(self, position):
+        return self.ui.pointer_up(self.logical_position(position))
+
+    def navigate(self, key, reverse=False):
+        return self.ui.navigate(key, reverse)
+
+    def header(self, title, subtitle=''):
+        self.ui.text('GESTURE DEFENDER', (40, 25), 24, CYAN)
+        self.ui.title(title, (36, 66), 60, lavender=True)
+        if subtitle:
+            self.ui.text(subtitle, (42, 140), 24, MUTED)
+
+    def stars(self, reduced):
+        self.backdrop.draw(self.screen,self.elapsed,reduced,quiet=self.page=='play',menu=self.page=='menu')
+
+    def menu(self, game, reduced):
+        u = self.ui
+        u.text('A HANDS-ON SPACE ADVENTURE', (102, 110), 24, CYAN)
+        u.title('GESTURE', (90,166),112)
+        u.title('DEFENDER', (90,265),98,lavender=True)
+        u.text('Move with your hand. Defend your space.', (102, 384), 32, MUTED)
+        u.panel((96,428,344,50))
+        u.text(f'PERSONAL BEST   {game.best:,}', (268,444),24,INK,center=True)
+        u.button('PLAY', (96, 495, 344, 66), 'play', primary=True)
+        u.button('Controls', (96, 580, 164, 54), 'controls')
+        u.button('Settings', (276, 580, 164, 54), 'settings')
+        u.button('Quit', (96, 652, 164, 48), 'quit')
+        offset = 0 if reduced else math.sin(self.elapsed * 1.3) * 7
+        self.screen.blit(self.menu_rocket,(841,278+offset))
+        u.text('Camera stays off until you choose it.', (1000, 655), 24, MUTED, center=True)
+        u.text('Tab / arrows to navigate    Enter to select', (96, 735), 20, MUTED)
+        u.text('Art direction: Designed by vectorpouch / Freepik', (871,735),20,MUTED)
+
+    def mode(self):
+        u = self.ui
+        self.header('How would you like to play?', 'Choose an input mode. You can switch later from Settings.')
+        for x, title, subtitle, action, button in (
+                (244, 'Use your camera', 'Steer with your index finger. Pinch to fire, make a fist to shield.', 'choose_camera', 'Set up camera'),
+                (698, 'Use your keyboard', 'Move with arrows or A / D. Space fires. S or Shift activates the shield.', 'choose_keyboard', 'Play with keyboard')):
+            u.panel((x, 236, 424, 338))
+            gesture_icon(self.screen, 'fire' if action == 'choose_keyboard' else 'shield', (x+32, 274), CYAN)
+            u.text(title, (x+32, 326), 40)
+            u.wrap(subtitle, (x+32, 384, 360, 70), 28)
+            u.button(button, (x+32, 484, 360, 54), action, primary=action == 'choose_camera')
+        u.button('Back', (40, 686, 160, 48), 'back')
+        u.text('All camera processing stays on this device.', (WIDTH//2, 626), 24, MUTED, center=True)
+
+    def camera_preview(self, rect, packet, face_ok, hand_ok, label, detailed=False):
         rect = pygame.Rect(rect)
-        pygame.draw.rect(self.screen, (22, 55, 70), rect, border_radius=8)
-        pygame.draw.rect(self.screen, (51, 121, 131), rect, 1, border_radius=8)
-        self.text(label, (rect.x + 15, rect.y + 13), 23, CYAN)
-        self.buttons.append((rect, key))
-
-    def text(self, value, pos, size=23, color=INK):
-        self.screen.blit(self.fonts[size].render(str(value), True, color), pos)
-
-    def wrapped(self, value, x, y, width, color=MUTED):
-        line = ""
-        for word in value.split():
-            candidate = f"{line} {word}".strip()
-            if self.fonts[20].size(candidate)[0] > width and line:
-                self.text(line, (x, y), 20, color)
-                y += 21
-                line = word
-            else:
-                line = candidate
-        self.text(line, (x, y), 20, color)
-        return y + 25
-
-    def draw(self, game, packet, controls, face_ok, hand_ok, status, error, demo, fps):
-        self.buttons.clear()
-        ticks = pygame.time.get_ticks()
-        dt = min(0.1, max(0.001, (ticks - self.last_tick) / 1000))
-        self.last_tick = ticks
-        reduced = self.preferences["reduced_motion"]
-        self.effects.update(game, dt, reduced)
-        screen = self.screen
-        screen.fill(BG)
-        self.text("GESTURE DEFENDER", (24, 22), 36)
-        self.text("Dodge the fall. Pinch to fire.", (25, 64), 23, MUTED)
-        self.text(f"SCORE  {game.score:05d}", (425, 28), 28, CYAN)
-        self.text(f"BEST  {game.best:05d}", (425, 62), 20, MUTED)
-        self.text(f"LIVES  {'| ' * game.lives}", (620, 28), 28, RED)
-        arena = game.arena
-        pygame.draw.rect(screen, (14, 24, 41), arena, border_radius=18)
-        screen.set_clip(arena)
-        for offset in range(0, arena.height, 30):
-            color = (14, 24 + int(offset / arena.height * 7), 41 + int(offset / arena.height * 13))
-            pygame.draw.rect(screen, color, (arena.x, arena.y + offset, arena.width, 30))
-        for x in range(arena.left - 200, arena.right + 201, 100):
-            pygame.draw.line(screen, (22, 43, 61), (arena.centerx, arena.top + 60), (x, arena.bottom))
-        for i in range(60):
-            x = arena.x + (i * 137 + 31) % arena.width
-            y = arena.y + (i * 73 + (0 if reduced else game.elapsed) * (10 + i % 4 * 5)) % arena.height
-            pygame.draw.circle(screen, (37, 62, 83), (int(x), int(y)), 1 + i % 2)
-        for bullet in game.bullets:
-            pygame.draw.line(screen, (31, 117, 128), (bullet.x, bullet.y + 28), (bullet.x, bullet.y), 4)
-            pygame.draw.rect(screen, CYAN, bullet.rect().inflate(-2, 13), border_radius=3)
-        for rock in game.obstacles:
-            r = rock.size / 2
-            color = (231, 197, 112) if rock.kind == 'armored' else (217, 133, 255) if rock.kind == 'zigzag' else RED
-            if rock.hit_flash > 0:
-                color = INK
-            if rock.kind == 'armored':
-                rect = rock.rect()
-                pygame.draw.rect(screen, (74, 65, 50), rect, border_radius=7)
-                pygame.draw.rect(screen, color, rect, 3, border_radius=7)
-                pygame.draw.rect(screen, color, rect.inflate(-14, -14), 2)
-                self.text(str(rock.hp), (rock.x - 5, rock.y - 6), 20, color)
-                continue
-            if rock.kind == 'zigzag':
-                vertices = [(rock.x, rock.y - r), (rock.x + r, rock.y), (rock.x, rock.y + r), (rock.x - r, rock.y)]
-                pygame.draw.polygon(screen, (57, 36, 82), vertices)
-                pygame.draw.polygon(screen, color, vertices, 2)
-                pygame.draw.line(screen, color, (rock.x - 7, rock.y), (rock.x + 7, rock.y), 2)
-                continue
-            vertices = [(rock.x + math.cos(i * math.tau / 7 + game.elapsed) * r,
-                         rock.y + math.sin(i * math.tau / 7 + game.elapsed) * r) for i in range(7)]
-            pygame.draw.polygon(screen, (93, 49, 71), vertices)
-            pygame.draw.polygon(screen, (166, 73, 89), [vertices[0], vertices[1], vertices[2], (rock.x, rock.y)])
-            pygame.draw.polygon(screen, (64, 36, 59), [vertices[3], vertices[4], vertices[5], (rock.x, rock.y)])
-            pygame.draw.polygon(screen, color, vertices, 2)
-        if game.boss:
-            boss = game.boss
-            rect = boss.rect()
-            color = INK if boss.hit_flash > 0 else RED
-            pygame.draw.polygon(screen, (100, 45, 65), [(rect.left, rect.top + 15), (rect.centerx, rect.top),
-                                (rect.right, rect.top + 15), (rect.right - 18, rect.bottom),
-                                (rect.centerx, rect.bottom - 15), (rect.left + 18, rect.bottom)])
-            pygame.draw.rect(screen, color, rect.inflate(-25, -26), 3, border_radius=5)
-            bar = pygame.Rect(arena.x + 170, arena.y + 42, 400, 9)
-            pygame.draw.rect(screen, (68, 38, 52), bar)
-            pygame.draw.rect(screen, RED, (bar.x, bar.y, int(bar.width * boss.hp / boss.max_hp), bar.height))
-            label = 'DODGE: LANCE' if game.attack_index % 2 == 0 else 'DODGE: FAN'
-            self.text(f"BOSS {boss.hp}/{boss.max_hp}  /  {label if game.boss_phase == 'warning' else game.boss_phase.upper()}", (bar.x, bar.y - 23), 20, GOLD)
-        for x in game.warning_lanes:
-            if game.boss_phase == 'warning':
-                pygame.draw.rect(screen, GOLD, (x - 28, arena.top + 170, 56, arena.height - 170), 2)
-                for y in range(arena.top + 180, arena.bottom, 22):
-                    pygame.draw.line(screen, GOLD, (x - 10, y), (x + 10, y + 8), 1)
-            elif game.boss_phase == 'active':
-                pygame.draw.rect(screen, RED, (x - 28, arena.top + 160, 56, arena.height - 160))
-                pygame.draw.rect(screen, INK, (x - 8, arena.top + 160, 16, arena.height - 160))
-        for x, y, vx, speed in game.fan_paths:
-            travel = (arena.bottom - y) / speed
-            pygame.draw.line(screen, GOLD, (x, y), (x + vx * travel, arena.bottom), 1)
-        for bullet in game.hostile_bullets:
-            pygame.draw.circle(screen, RED, (int(bullet.x), int(bullet.y)), 7)
-            pygame.draw.circle(screen, GOLD, (int(bullet.x), int(bullet.y)), 3)
-        player = game.player
-        if not game.invulnerable or int(game.invulnerable * 12) % 2:
-            self.effects.ship(screen, player, game.elapsed, reduced)
-        if game.shield_remaining > 0:
-            pygame.draw.ellipse(screen, CYAN, player.inflate(32, 34), 3)
-        self.effects.draw_particles(screen)
-        self.text(f"WAVE {game.wave:02d}", (arena.x + 20, arena.y + 18), 23, MUTED)
-        if game.invulnerable > 0.95:
-            pygame.draw.rect(screen, RED, arena.inflate(-6, -6), width=3, border_radius=15)
-        if game.state != "running":
-            shade = pygame.Surface(arena.size, pygame.SRCALPHA)
-            shade.fill((4, 10, 22, 205))
-            screen.blit(shade, arena)
-            title, subtitle = {
-                "ready": ("READY, PILOT?", "Hold an open palm to start"),
-                "paused": ("PAUSED", game.reason),
-                "gameover": ("GAME OVER", f"Final score: {game.score}   /   Press R to restart"),
-                "calibrating": ("FIND YOUR RANGE", "Keep face + hand visible. Enter: use default range"),
-                "setup": ("CAMERA SETUP", game.reason or "Choose a camera, calibrate, then Start"),
-            }[game.state]
-            if demo and game.state == "ready":
-                subtitle = "Press Space to start"
-            setup = game.state in ('setup', 'calibrating')
-            self.text(title, (arena.x + 65, arena.y + (50 if setup else 220)), 58)
-            self.text(subtitle, (arena.x + 66, arena.y + (105 if setup else 284)), 28, CYAN)
-            if game.state == "paused":
-                hint = "Space / P to resume" if demo else "Face + hand in view, then palm / Space / P to resume"
-                self.text(hint, (arena.x + 66, arena.y + 324), 23, MUTED)
-            elif game.state == "ready":
-                hint = "Arrows / A-D to steer. Hold Space to fire." if demo else "Move index finger to steer / pinch to shoot"
-                self.text(hint, (arena.x + 66, arena.y + 324), 23, MUTED)
-            if game.state in ("setup", "calibrating"):
-                self.text(f"Camera {self.preferences['camera_index']}    [ / ] change    T retry", (90, 250), 23, MUTED)
-                self.button("Previous", (90, 285, 140, 42), pygame.K_LEFTBRACKET)
-                self.button("Next camera", (242, 285, 160, 42), pygame.K_RIGHTBRACKET)
-                self.button("Retry", (414, 285, 130, 42), pygame.K_t)
-                # Setup remains one screen; the live preview/status stay at right.
-                self.button("Calibrate", (90, 535, 175, 44), pygame.K_c)
-                self.button("Start", (278, 535, 175, 44), pygame.K_SPACE)
-                self.button("Keyboard mode", (466, 535, 195, 44), pygame.K_k)
-                self.text("Enter: use default range   +/-: sensitivity", (90, 600), 23, MUTED)
-            if game.state in ("setup", "calibrating") and self.calibration:
-                self.wrapped(self.calibration.message, arena.x + 66, arena.y + 330, 620, GOLD)
-                pygame.draw.rect(screen, (32, 63, 78), (arena.x + 66, arena.y + 380, 600, 8))
-                pygame.draw.rect(screen, CYAN, (arena.x + 66, arena.y + 380, int(600 * self.calibration.progress), 8))
-            elif game.state not in ("setup", "calibrating"):
-                label = "Restart" if game.state == "gameover" else "Resume" if game.state == "paused" else "Start game"
-                self.button(label, (90, 505, 175, 46), pygame.K_r if game.state == "gameover" else pygame.K_SPACE)
-                self.button("Switch input", (278, 505, 175, 46), pygame.K_k)
-                self.button("Settings", (466, 505, 175, 46), pygame.K_F1)
-                self.button("Quit", (90, 568, 175, 42), pygame.K_q)
-        screen.set_clip(None)
-        pygame.draw.rect(screen, (39, 58, 78), arena, width=1, border_radius=18)
-        self.text("INPUT: WEBCAM" if not demo else "INPUT: KEYBOARD", (790, 112), 23, CYAN)
-        preview_rect = pygame.Rect(790, 148, 286, 215)
-        pygame.draw.rect(screen, (20, 32, 50), preview_rect, border_radius=10)
-        if packet:
-            if packet.sequence != self.sequence:
-                h, w = packet.rgb.shape[:2]
-                self.preview = pygame.transform.smoothscale(
-                    pygame.image.frombuffer(packet.rgb.tobytes(), (w, h), "RGB"), preview_rect.size)
-                self.sequence = packet.sequence
-            screen.blit(self.preview, preview_rect)
-            def point(x, y):
-                return (preview_rect.x + round(x * preview_rect.width),
-                        preview_rect.y + round(y * preview_rect.height))
-            screen.set_clip(preview_rect)
-            if face_ok and packet.face:
-                x1, y1 = min(p[0] for p in packet.face), min(p[1] for p in packet.face)
-                x2, y2 = max(p[0] for p in packet.face), max(p[1] for p in packet.face)
-                box = pygame.Rect(point(x1, y1), (round((x2 - x1) * preview_rect.width),
-                                                 round((y2 - y1) * preview_rect.height)))
-                pygame.draw.rect(screen, CYAN, box.inflate(8, 8), 2, border_radius=8)
-                for x, y in packet.face:
-                    pygame.draw.circle(screen, (109, 188, 187), point(x, y), 1)
-            if hand_ok and packet.hand:
+        self.ui.panel(rect)
+        if packet is None:
+            self.ui.text(label, (rect.centerx, rect.centery-12), 28, MUTED, center=True)
+            return
+        if self.sequence != packet.sequence or self.preview is None:
+            h, w = packet.rgb.shape[:2]
+            self.preview = pygame.image.frombuffer(packet.rgb.tobytes(), (w, h), 'RGB').copy()
+            self.sequence = packet.sequence
+        # Fit the image without distorting the player's face when preview sizes change.
+        pw, ph = self.preview.get_size()
+        inner=rect.inflate(-18,-20)
+        scale = min(inner.width / pw, inner.height / ph)
+        size = (round(pw * scale), round(ph * scale))
+        target = pygame.Rect(0, 0, *size)
+        target.center = rect.center
+        rounded = pygame.Surface(size,pygame.SRCALPHA)
+        rounded.blit(pygame.transform.smoothscale(self.preview,size),(0,0))
+        rounded.blit(preview_mask(size),(0,0),special_flags=pygame.BLEND_RGBA_MULT)
+        self.screen.blit(rounded,target)
+        self.screen.set_clip(target)
+        def point(x, y):
+            return target.x + round(x * target.width), target.y + round(y * target.height)
+        if face_ok and packet.face:
+            xs, ys = zip(*packet.face)
+            box = pygame.Rect(point(min(xs), min(ys)), (max(1, round((max(xs)-min(xs))*target.width)), max(1, round((max(ys)-min(ys))*target.height))))
+            pygame.draw.rect(self.screen, CYAN, box, 2, border_radius=8)
+        if hand_ok and packet.hand:
+            if detailed:
                 points = [point(x, y) for x, y in packet.hand]
                 for a, b in CONNECTIONS:
-                    pygame.draw.line(screen, GOLD, points[a], points[b], 1)
-                for index, p in enumerate(points):
-                    pygame.draw.circle(screen, CYAN if index == 8 else GOLD, p, 4 if index == 8 else 2)
-            screen.set_clip(None)
-        else:
-            label = "Camera off" if demo else ("Camera unavailable" if error else "Starting camera...")
-            self.text(label, (810, 240), 23, MUTED)
-        self.text("FACE  " + ("OFF" if demo else "OK" if face_ok else "NOT FOUND"), (790, 382), 20, CYAN if face_ok else MUTED)
-        self.text("HAND  " + ("OFF" if demo else "OK" if hand_ok else "NOT FOUND"), (930, 382), 20, CYAN if hand_ok else MUTED)
-        self.wrapped(status, 790, 414, 280, GOLD)
-        pygame.draw.rect(screen, (32, 48, 66), (790, 461, 286, 5), border_radius=2)
-        progress = controls.fist_progress if controls.fist else controls.palm_progress
-        pygame.draw.rect(screen, CYAN, (790, 461, int(286 * progress), 5), border_radius=2)
-        self.text("CONTROLS", (790, 491), 23)
-        lines = ("Arrows / A-D   Move", "Space   Start / fire") if demo else ("Index finger   Move / hold pinch   Fire", "Open palm   Start / pause")
-        for i, line in enumerate((*lines, "P / Esc   Pause menu", "R   Restart    Q   Quit",
-                                  "K / Tab   Switch input mode", "F1   Settings / calibration",
-                                  "S / hold fist   Shield")):
-            self.text(line, (790, 520 + i * 22), 20, MUTED)
-        self.text("LOCAL ONLY  /  NO RECORDING", (790, 708), 20, CYAN)
-        shield_text = f"SHIELD {game.shield_remaining:.1f}s" if game.shield_remaining > 0 else f"SHIELD WAIT {game.shield_cooldown:.1f}s" if game.shield_cooldown > 0 else "SHIELD READY / S or fist"
-        self.text(shield_text, (790, 680), 20, CYAN if game.shield_cooldown <= 0 else MUTED)
-        self.text(f"{fps:.0f} FPS", (24, HEIGHT - 26), 20, MUTED)
-        self.text(f"COMBO {game.multiplier}x  /  {game.combo_hits} hits  /  {game.combo_remaining:.1f}s", (255, HEIGHT - 26), 20, GOLD)
-        pygame.draw.rect(screen, (57, 54, 44), (580, HEIGHT - 24, 150, 5))
-        pygame.draw.rect(screen, GOLD, (580, HEIGHT - 24, int(150 * game.combo_remaining / 2), 5))
+                    pygame.draw.line(self.screen, GOLD, points[a], points[b], 1)
+                for p in points:
+                    pygame.draw.circle(self.screen, GOLD, p, 3)
+            else:
+                pygame.draw.circle(self.screen, CYAN, point(*packet.hand[8]), 7, 2)
+        self.screen.set_clip(None)
+
+    def setup(self, game, packet, controls, face_ok, hand_ok, status, error, ready):
+        u = self.ui
+        self.header('Camera setup')
+        u.text(f'Camera {self.preferences["camera_index"]}', (40, 149), 28)
+        u.button('Previous', (346, 126, 120, 46), 'camera_prev', enabled=self.preferences['camera_index'] > 0)
+        u.button('Next', (478, 126, 108, 46), 'camera_next', enabled=self.preferences['camera_index'] < 9)
+        u.button('Retry', (598, 126, 130, 46), 'retry_camera')
+        u.button('Play with keyboard', (1030, 124, 296, 48), 'choose_keyboard')
+        self.camera_preview((40, 192, 688, 516), packet, face_ok, hand_ok,
+                            'Camera unavailable' if error else 'Opening camera...', self.debug)
+        u.panel((756, 192, 570, 516))
+        u.text('FACE  ' + ('Detected' if face_ok else 'Searching'), (788, 222), 28, CYAN if face_ok else MUTED)
+        u.text('HAND  ' + ('Detected' if hand_ok else 'Searching'), (1060, 222), 28, CYAN if hand_ok else MUTED)
         if error:
-            # Keep setup controls and preview available even when startup fails.
-            panel = pygame.Rect(60, 335, 685, 180)
-            pygame.draw.rect(screen, (37, 20, 34), panel, border_radius=16)
-            pygame.draw.rect(screen, RED, panel, 2, border_radius=16)
-            self.text("CAMERA / TRACKING UNAVAILABLE", (80, 355), 28, RED)
-            self.wrapped(error[:360], 80, 392, panel.width - 40, INK)
-            self.text("T: retry   [ / ]: camera   K: keyboard mode", (80, 484), 23, GOLD)
-        if self.settings_open or self.menu_open:
-            self.buttons.clear()
-            panel = pygame.Rect(75, 170, 950, 465)
-            pygame.draw.rect(screen, (12, 26, 43), panel, border_radius=16)
-            pygame.draw.rect(screen, (51, 121, 131), panel, 2, border_radius=16)
-            self.text("SETTINGS / PAUSE", (110, 200), 36)
-            prefs = self.preferences
-            lines = [f"M   Sound: {'muted' if prefs['muted'] else 'on'}     V   Volume: {int(prefs['volume'] * 100)}%",
-                     f"E   Reduced motion / effects: {'on' if prefs['reduced_motion'] else 'off'}",
-                     f"L   Tracking resolution: {'424 x 318' if prefs['low_resolution'] else '640 x 480'} (applies immediately)",
-                     f"[ / ]   Camera index: {prefs['camera_index']}    T   Retry camera",
-                     f"- / +   Sensitivity: {prefs['sensitivity']:.1f}x     C   Recalibrate",
-                     "Space / P: resume    K: switch input    Esc / F1: close menu"]
+            u.text('Camera unavailable', (788, 270), 32, RED)
+            u.wrap(str(error)[:180], (788, 310, 504, 80), 24, INK)
+        else:
+            instructions = self.setup_prompt or 'Keep your face and one full hand in view. Move your index finger left and right.'
+            u.wrap(status if not ready else instructions, (788, 272, 504, 80), 28)
+        u.text('MOVEMENT TEST', (788, 397), 22, MUTED)
+        progress(self.screen, (788, 437, 504, 5), controls.x)
+        px = 788 + max(0, min(1, controls.x)) * 504
+        pygame.draw.polygon(self.screen, CYAN, [(px, 425), (px-9, 449), (px+9, 449)])
+        u.button('Recalibrate', (788, 470, 246, 48), 'recalibrate', primary=True, enabled=ready and not self.calibration)
+        u.button('Use default range', (1046, 470, 246, 48), 'default_range')
+        if self.calibration:
+            u.wrap(self.calibration.message, (788, 535, 504, 56), 24, GOLD)
+            progress(self.screen, (788, 580, 504, 16), self.calibration.progress)
+        else:
+            u.wrap('Calibration saved. Start when comfortable.' if game.reason == 'Calibrated' else 'Calibrate your comfortable reach, or use the saved/default range.', (788, 536, 504, 60), 24)
+        enabled = ready and not self.calibration and not error
+        u.button('Start Game', (788, 610, 504, 52), 'start', primary=True, enabled=enabled)
+        explanation = 'Finish calibration or choose default range.' if self.calibration else 'Start needs a current face and hand detection.' if not ready else 'Ready to play.'
+        u.text(explanation, (788, 679), 22, MUTED)
+        u.button('Back', (40, 716, 180, 44), 'main_menu')
+        u.text('Mirrored preview  /  processed locally  /  no recording', (244, 733), 22, MUTED)
+
+    def hud(self, game):
+        u = self.ui
+        u.panel((24,8,210,80))
+        u.panel((242,8,216,80))
+        u.panel((524,8,318,80))
+        u.panel((960,8,382,80))
+        u.text('SCORE', (45, 20), 20, MUTED)
+        u.text(f'{game.score:,}', (45, 39), 40)
+        u.text(f'COMBO {game.multiplier}x', (263, 23), 28, CYAN)
+        if game.combo_remaining > 0:
+            u.text(f'{game.combo_remaining:.1f}s', (263, 53), 22, MUTED)
+            progress(self.screen, (320, 58, 110, 8), game.combo_remaining / 2)
+        u.text(f'WAVE {game.wave:02d}', (WIDTH//2, 20 if game.boss else 32), 32, INK, center=True)
+        if game.boss:
+            u.text(f'BOSS   {game.boss.hp} / {game.boss.max_hp}', (WIDTH//2, 53), 22, RED, center=True)
+            progress(self.screen, (WIDTH//2-133,73,266,8), game.boss.hp/game.boss.max_hp, RED)
+        u.text(f'LIVES  {game.lives}', (980, 22), 28)
+        state = f'ACTIVE  {game.shield_remaining:.1f}s' if game.shield_remaining > 0 else f'COOLDOWN  {game.shield_cooldown:.1f}s' if game.shield_cooldown > 0 else 'READY'
+        gesture_icon(self.screen, 'shield', (980, 49), CYAN)
+        u.text('SHIELD  ' + state, (1015, 53), 22)
+        fill=game.shield_remaining/2 if game.shield_remaining>0 else 1-game.shield_cooldown/8
+        progress(self.screen,(1122,27,195,10),fill)
+
+    def gesture_cards(self, game, controls, keyboard):
+        u = self.ui
+        items = [('fire', 'Space / Fire' if keyboard else 'Pinch / Fire', controls.pinching or controls.shoot, 1 if controls.pinching else 0),
+                 ('shield', 'S / Shield' if keyboard else 'Fist / Shield', controls.fist, controls.fist_progress),
+                 ('pause', 'P / Pause' if keyboard else 'Hold palm / Pause', controls.palm_progress > 0, controls.palm_progress)]
+        for i, (kind, label, active, hold) in enumerate(items):
+            x = 240 + i * 250
+            u.panel((x, 604, 230, 74), PANEL if active else (22,49,66))
+            gesture_icon(self.screen, kind, (x+17, 625), CYAN if active else MUTED)
+            u.text(label, (x+53, 628), 24, INK if active else MUTED)
+            if hold:
+                progress(self.screen, (x+16, 668, 198, 3), hold)
+
+    def play(self, game, packet, controls, face_ok, hand_ok, guidance, keyboard, dt, reduced):
+        self.arena_view.draw(game, self.screen, self.viewport, dt, reduced)
+        pygame.draw.rect(self.screen, BORDER, self.viewport, 1, border_radius=10)
+        self.hud(game)
+        if game.boss and game.boss_phase == 'warning':
+            self.ui.text('LANCE WARNING - move out of the lanes' if game.attack_index % 2 == 0 else 'FAN WARNING - move between the paths', (WIDTH//2, 110), 24, GOLD, center=True)
+        if keyboard:
+            self.ui.panel((24, 598, 192, 144))
+            self.ui.text('KEYBOARD', (120, 630), 28, CYAN, center=True)
+            self.ui.text('Arrows / A-D', (120, 668), 24, INK, center=True)
+            self.ui.text('Camera off', (120, 708), 22, MUTED, center=True)
+        elif self.preferences['preview_visible']:
+            self.camera_preview((24, 598, 192, 144), packet, face_ok, hand_ok, 'No preview', self.debug)
+        else:
+            self.ui.panel((24, 598, 192, 144))
+            self.ui.text('Preview hidden', (120, 645), 24, INK, center=True)
+            self.ui.text('Tracking continues', (120, 680), 22, MUTED, center=True)
+        self.gesture_cards(game, controls, keyboard)
+        self.ui.button('Pause', (1004, 604, 144, 48), 'pause')
+        self.ui.button('Hide preview' if self.preferences['preview_visible'] else 'Show preview', (1160, 604, 182, 48), 'toggle_preview', enabled=not keyboard)
+        self.ui.button('Set up camera' if keyboard else 'Keyboard mode / camera off', (1004, 674, 338, 48), 'switch_input')
+        self.ui.wrap(guidance, (240, 695, 730, 50), 24, GOLD)
+        if game.state in ('paused', 'gameover'):
+            self.overlay(game, keyboard)
+
+    def overlay(self, game, keyboard):
+        shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        shade.fill((6, 2, 36, 205))
+        self.screen.blit(shade, (0, 0))
+        self.ui.buttons.clear()
+        if self.ui.focus not in ('resume', 'recalibrate', 'settings', 'main_menu', 'restart'):
+            self.ui.focus = None
+        u = self.ui
+        if game.state == 'gameover':
+            u.panel((423, 158, 520, 452))
+            u.title('GAME OVER', (683, 198), 48, lavender=True, center=True)
+            if game.score > game.record_at_start:
+                u.text('NEW BEST', (683, 254), 24, CYAN, center=True)
+            u.text(f'{game.score:,}', (683, 296), 84, center=True)
+            u.text(f'Best {game.best:,}   /   Wave {game.wave:02d}', (683, 392), 28, MUTED, center=True)
+            u.button('Play Again', (459, 456, 448, 54), 'restart', primary=True)
+            u.button('Main Menu', (459, 530, 448, 48), 'main_menu')
+        else:
+            u.panel((453, 155, 460, 482))
+            u.title('PAUSED', (683, 192), 48, lavender=True, center=True)
+            u.wrap(game.reason or 'Paused by you', (485, 254, 396, 60), 28)
+            ready = keyboard or bool(self.can_start)
+            u.button('Resume', (485, 330, 396, 48), 'resume', primary=True, enabled=ready)
+            if not ready:
+                u.text('Return face + hand to view to resume.', (485, 305), 22, GOLD)
+            if not keyboard:
+                u.button('Recalibrate', (485, 394, 396, 48), 'recalibrate')
+            u.button('Settings', (485, 458 if not keyboard else 394, 396, 48), 'settings')
+            u.button('Main Menu', (485, 522 if not keyboard else 458, 396, 48), 'main_menu')
+
+    def settings(self, keyboard):
+        u = self.ui
+        self.header('Settings', 'Changes are saved on exit. Closing this screen never resumes play automatically.')
+        p = self.preferences
+        rows = [
+            ('Input mode', 'Keyboard' if keyboard else 'Camera', 'switch_input'),
+            ('Sound', 'Unmute' if p['muted'] else 'Mute', 'mute'),
+            ('Camera preview', 'Visible' if p['preview_visible'] else 'Hidden', 'toggle_preview'),
+            ('Reduced motion', 'On' if p['reduced_motion'] else 'Off', 'reduced_motion'),
+            ('Display', 'Windowed' if self.fullscreen else 'Fullscreen', 'fullscreen'),
+            ('Gesture sensitivity', f'{p["sensitivity"]:.1f}x', None),
+            ('Camera resolution', 'Low / 424 x 318' if p['low_resolution'] else 'Standard / 640 x 480', 'resolution')]
+        for i, (label, value, action) in enumerate(rows):
+            y = 197 + i * 66
+            u.panel((230, y, 906, 58))
+            u.text(label, (254, y+16), 28)
+            if i == 1:
+                u.button('-', (510, y+6, 48, 46), 'volume_down')
+                u.text(f'{round(p["volume"]*100)}%', (579, y+18), 24, MUTED)
+                u.button('+', (650, y+6, 48, 46), 'volume_up')
+            if action:
+                u.button(value, (770, y+6, 342, 46), action)
+            else:
+                u.button('-', (770, y+6, 80, 46), 'sensitivity_down')
+                u.text(value, (901, y+16), 28, CYAN)
+                u.button('+', (1032, y+6, 80, 46), 'sensitivity_up')
+        u.button('Back', (230, 689, 200, 48), 'back', primary=True)
+        u.text('F11 display   /   H preview   /   F2 debug', (620, 707), 24, MUTED)
+
+    def controls_page(self):
+        u = self.ui
+        self.header('Controls', 'Choose the way you play. Keyboard fallback is always available.')
+        for x, title, lines in ((150, 'CAMERA', ['Index finger: steer left / right', 'Pinch: hold to fire, separate to stop', 'Fist: hold 0.35s for a 2s shield', 'Open palm: hold to pause / resume', 'Open your hand before another shield']),
+                                (714, 'KEYBOARD', ['Arrows or A / D: steer', 'Space: fire / start / resume', 'S or Shift: activate shield', 'P or Escape: pause', 'R: play again after game over'])):
+            u.panel((x, 216, 504, 350))
+            u.text(title, (x+32, 249), 32, CYAN)
             for i, line in enumerate(lines):
-                self.text(line, (110, 258 + i * 36), 23, MUTED)
-            self.button("Resume / Start", (110, 535, 195, 48), pygame.K_SPACE)
-            self.button("Switch input", (325, 535, 190, 48), pygame.K_k)
-            self.button("Quit game", (535, 535, 190, 48), pygame.K_q)
+                u.text(line, (x+32, 315+i*43), 28)
+        u.text('Shield cooldown: 8s after expiry. Tracking recovery always waits for your resume.', (WIDTH//2, 620), 28, MUTED, center=True)
+        u.button('Back', (150, 686, 200, 48), 'back', primary=True)
+
+    def draw(self, game, packet, controls, face_ok, hand_ok, status, error, demo, fps):
+        ticks = pygame.time.get_ticks()
+        dt = min(0.1, max(0.001, (ticks-self.last_tick)/1000))
+        self.last_tick = ticks
+        reduced = self.preferences['reduced_motion']
+        self.elapsed += dt
+        page = self.page
+        if page == 'auto':
+            page = 'menu' if game.state == 'ready' else 'setup' if game.state in ('setup', 'calibrating') else 'play'
+        scene = (page, game.state if page == 'play' else '')
+        if scene != self.last_scene:
+            self.transition = 0.0
+            self.message = StableMessage()
+            self.last_scene = scene
+        self.transition = min(1, self.transition + dt / 0.12)
+        self.ui.begin(scene, self.logical_position(pygame.mouse.get_pos()))
+        self.screen.fill(BG)
+        self.backdrop.draw(self.screen,self.elapsed,reduced,quiet=page=='play',menu=page=='menu')
+        stable = self.message.update(status, dt, urgent=bool(error))
+        ready = bool(face_ok and hand_ok) if self.can_start is None else self.can_start
+        if page == 'menu':
+            self.menu(game, reduced)
+        elif page == 'mode':
+            self.mode()
+        elif page == 'setup':
+            self.setup(game, packet, controls, face_ok, hand_ok, stable, error, ready)
+        elif page == 'settings':
+            self.settings(demo)
+        elif page == 'controls':
+            self.controls_page()
+        else:
+            guidance = '' if stable in ('Hand detected / tracking ready', 'Tracking ready') else stable
+            self.play(game, packet, controls, face_ok, hand_ok, guidance, demo, dt, reduced)
+        if self.debug:
+            self.ui.panel((24, 2, 610, 30))
+            self.ui.text(f'DEBUG   {fps:.0f} FPS   Face: {face_ok}   Hand: {hand_ok}   Frame: {getattr(packet, "sequence", "none")}', (32, 8), 22, GOLD)
+        if not reduced and page != 'play' and self.transition < 1:
+            shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            shade.fill((*BG, int((1-self.transition)*100)))
+            self.screen.blit(shade, (0, 0))
         w, h = self.window.get_size()
-        scale = min(w / WIDTH, h / HEIGHT)
-        size = (max(1, int(WIDTH * scale)), max(1, int(HEIGHT * scale)))
+        scale = min(w/WIDTH, h/HEIGHT)
+        size = (max(1, round(WIDTH*scale)), max(1, round(HEIGHT*scale)))
         self.window.fill(BG)
-        self.window.blit(pygame.transform.smoothscale(screen, size), ((w - size[0]) // 2, (h - size[1]) // 2))
+        self.window.blit(pygame.transform.smoothscale(self.screen, size), ((w-size[0])//2, (h-size[1])//2))
         pygame.display.flip()

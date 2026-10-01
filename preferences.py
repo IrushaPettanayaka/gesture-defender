@@ -6,7 +6,8 @@ import tempfile
 
 DEFAULTS = {"reduced_motion": False, "muted": False, "volume": 0.3,
             "low_resolution": False, "sensitivity": 1.0,
-            "range_left": 0.08, "range_right": 0.92, "camera_index": 0}
+            "range_left": 0.08, "range_right": 0.92, "camera_index": 0,
+            "preview_visible": True, "fullscreen": False}
 
 
 class Preferences:
@@ -19,7 +20,7 @@ class Preferences:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(saved, dict):
                 return
-            for key in ("reduced_motion", "muted", "low_resolution"):
+            for key in ("reduced_motion", "muted", "low_resolution", "preview_visible", "fullscreen"):
                 if type(saved.get(key)) is bool:
                     self.values[key] = saved[key]
             for key, low, high in (("volume", 0, 1), ("sensitivity", 0.5, 2),

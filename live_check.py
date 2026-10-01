@@ -26,6 +26,7 @@ def verify(output_path, seconds=30, camera_index=0):
         screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption('Gesture Defender - real webcam verification')
         renderer, controller, game = Renderer(screen), InputController(), Game()
+        renderer.setup_prompt = 'Press Space or Start Game to begin the 30-second check. Test fist first.'
         prefs = Preferences().values
         renderer.preferences = prefs
         controller.gestures.range_left = prefs['range_left']
@@ -45,6 +46,8 @@ def verify(output_path, seconds=30, camera_index=0):
             packet, error = worker.snapshot()
             controls = controller.update(packet, error, now, dt)
             space_pressed = any(e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE for e in events)
+            space_pressed = space_pressed or any(e.type == pygame.MOUSEBUTTONDOWN and e.button == 1
+                                                and renderer.click(e.pos) == 'start' for e in events)
             if deadline is None:
                 if space_pressed and controller.health.ready:
                     deadline = now + max(5, min(60, seconds))

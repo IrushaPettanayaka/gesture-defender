@@ -42,15 +42,17 @@ class Effects:
         for x, y, _, _, life, color in self.particles:
             pygame.draw.circle(screen, color, (int(x), int(y)), max(1, int(life * 6)))
 
-    def ship(self, screen, player, elapsed, reduced):
+    def ship(self, screen, player, elapsed, reduced, scale=1.0):
         cx, cy = player.centerx, player.centery
         def point(x, y):
+            x, y = x * scale, y * scale
             return (cx + x * math.cos(self.bank) - y * math.sin(self.bank),
                     cy + x * math.sin(self.bank) + y * math.cos(self.bank))
-        glow = pygame.Surface((100, 100), pygame.SRCALPHA)
+        glow_size = round(100 * scale)
+        glow = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
         for radius, alpha in ((42, 8), (32, 12), (23, 16)):
-            pygame.draw.circle(glow, (50, 230, 220, alpha), (50, 50), radius)
-        screen.blit(glow, (cx - 50, cy - 50))
+            pygame.draw.circle(glow, (50, 230, 220, alpha), (glow_size//2, glow_size//2), round(radius*scale))
+        screen.blit(glow, (cx - glow_size//2, cy - glow_size//2))
         flame = 20 if reduced else 23 + 8 * math.sin(elapsed * 31)
         pygame.draw.polygon(screen, (35, 110, 148), [point(-7, 17), point(0, 17 + flame), point(7, 17)])
         pygame.draw.polygon(screen, (155, 255, 240), [point(-3, 17), point(0, 27), point(3, 17)])

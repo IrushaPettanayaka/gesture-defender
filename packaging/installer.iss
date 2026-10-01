@@ -1,7 +1,7 @@
 [Setup]
 AppId=GestureDefender.Desktop
 AppName=Gesture Defender
-AppVersion=1.1.0
+AppVersion=1.3.0
 AppPublisher=Gesture Defender
 DefaultDirName={localappdata}\Programs\Gesture Defender
 DefaultGroupName=Gesture Defender
@@ -11,7 +11,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.22000
 OutputDir=..\release
-OutputBaseFilename=GestureDefender-1.1.0-Setup
+OutputBaseFilename=GestureDefender-1.3.0-Setup
 SetupIconFile=..\art\game.ico
 UninstallDisplayIcon={app}\GestureDefender.exe
 Compression=lzma2/fast

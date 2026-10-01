@@ -42,6 +42,7 @@ def main():
             phase = 'open' if elapsed < 5 else 'fist'
             game.state = 'setup'
             game.reason = ('OPEN PALM for 5 seconds' if phase == 'open' else 'HOLD A FIST facing the camera')
+            renderer.setup_prompt = game.reason
             points = packet.hand if packet else None
             controls = gesture.update(points, now)
             if packet and packet.sequence != sequence and points:

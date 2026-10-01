@@ -36,7 +36,7 @@ class Calibration:
             self.message = "Now hold at your comfortable RIGHT edge"
         elif edge - self.left < 0.2:
             self.stage = 0
-            self.message = "Range too narrow. Try LEFT again, or Enter for defaults"
+            self.message = "Range too narrow. Try LEFT again, or choose default range."
         else:
             self.result = (self.left, edge)
         return self.result

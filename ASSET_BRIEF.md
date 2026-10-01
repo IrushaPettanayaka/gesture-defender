@@ -1,14 +1,14 @@
-# Optional future asset pass
+# Gesture Defender cartoon space art
 
-Current release uses original procedural Pygame geometry and synthesized sound.
-Blender was not used, and no imported 3D assets are required. Keep the current
-renderer as the fallback if a future native 3D renderer is introduced.
+The current 1.3 UI direction supersedes the earlier optional 3D asset brief.
+See ART_ATTRIBUTION.md for the supplied vectorpouch / Freepik reference and rights
+handling. The implementation is procedural Python/Pygame; Blender is not required.
 
-For a future Astra/Blender pass: player_ship, enemy_scout, asteroid, shield_pickup.
-Use 1 unit as the player hull length, +Y forward, +Z up, origin at collision center.
-Budgets: 1,500 triangles/player, 800/enemy, 300/asteroid, 200/pickup. Colors: dark
-navy, cyan player, coral enemies. Avoid transparent textures and heavy materials.
-Optional clips: engine_idle (loop), bank_left/right (0.2 s), damage_flash (0.15 s).
-Export individual GLB files with transforms applied and no external textures;
-retain `.blend` sources and reproducible generation scripts. No runtime Blender
-dependency. This optional work is not part of the current packaged release.
+space_art.py generates individual original transparent illustrations, curved
+component skins, highlights and gradients. ui_components.py draws live dimensional
+lettering and controls. No source JPG/EPS, cropped reference text, or external font
+is required at runtime. Render review images with tools/render_preview.py.
+
+Keep indigo/purple backgrounds, cyan/lavender titles, glossy orange primary buttons
+and luminous blue panels consistent. Keep gameplay decoration quiet and confined
+away from hazards; preserve real state for all counters and progress meters.

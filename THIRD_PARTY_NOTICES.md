@@ -1,5 +1,16 @@
 # Third-party notices
 
+## Visual reference attribution
+
+**Designed by vectorpouch / Freepik** — https://www.freepik.com
+
+The user-supplied cartoon space UI sheet informed the 1.3 visual direction.
+Premium rights are not assumed. Runtime components use original procedural
+Pygame geometry; the supplied JPG/EPS and artwork pack are not distributed.
+See `ART_ATTRIBUTION.md` for provenance, license handling and reproduction.
+
+## Libraries and models
+
 Gesture Defender includes unmodified third-party runtime libraries and pretrained
 models. Their original license and notice texts are collected from the installed
 distributions into `_internal/notices` in the Windows build. Python's license is

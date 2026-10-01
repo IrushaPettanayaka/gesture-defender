@@ -6,10 +6,6 @@ import threading
 import time
 import logging
 
-import cv2
-import mediapipe as mp
-
-from camera import open_camera, read_frame
 from face_tracking import FaceTracker
 from hand_tracking import HandTracker
 from settings import CAMERA_WIDTH, CAMERA_HEIGHT
@@ -54,6 +50,9 @@ class TrackingWorker:
                 cleanup.callback(face.close)
                 hand = HandTracker()
                 cleanup.callback(hand.close)
+                import cv2
+                import mediapipe as mp
+                from camera import open_camera, read_frame
                 if self.stop.is_set():
                     return
                 camera = open_camera(self.camera_index)
