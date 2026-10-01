@@ -1,4 +1,10 @@
-# Gesture Defender 1.3.0 (CREATED COMPLETELY WITH CODEX,CHATGPT)
+# Gesture Defender 1.3.0
+
+> **AI-assisted project disclosure:** Approximately **95% of the implementation
+> was done by OpenAI Codex**, with ChatGPT assistance. I directed the project,
+> tested the game, and made small edits using my current Python knowledge.
+> I did not write the main implementation from scratch. The 95% figure is my
+> estimate, not a measured breakdown of individual lines of code.
 
 A Windows 11 x64 arcade game built with Python, Pygame, OpenCV and MediaPipe.
 Source: [IrushaPettanayaka/gesture-defender](https://github.com/IrushaPettanayaka/gesture-defender) (private).
