@@ -1,4 +1,4 @@
-# Gesture Defender 1.1.0
+# Gesture Defender 1.1.0 (CREATED COMPLETELY WITH CODEX,CHATGPT)
 
 A Windows 11 x64 arcade game built with Python, Pygame, OpenCV and MediaPipe.
 Source: [IrushaPettanayaka/gesture-defender](https://github.com/IrushaPettanayaka/gesture-defender) (private).
